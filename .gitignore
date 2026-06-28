@@ -1,1 +1,6 @@
 .DS_Store
+vendor/
+client/node_modules/
+data/users.sqlite
+.phpunit.cache/
+.claude/
