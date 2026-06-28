@@ -42,4 +42,13 @@ describe('UserTable', () => {
 
     expect(wrapper.text()).toContain('No users imported yet.');
   });
+
+  it('emits edit-user with the user object when edit is clicked', async () => {
+    const wrapper = mount(UserTable, { props: { users } });
+
+    await wrapper.find('[data-testid="edit-1"]').trigger('click');
+
+    expect(wrapper.emitted('edit-user')).toBeTruthy();
+    expect(wrapper.emitted('edit-user')[0][0]).toMatchObject({ id: 1, firstName: 'Alice' });
+  });
 });

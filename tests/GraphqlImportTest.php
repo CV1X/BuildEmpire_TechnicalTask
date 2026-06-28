@@ -107,18 +107,61 @@ final class GraphqlImportTest extends TestCase
         );
     }
 
-    public function testReimportingAnExistingHrIdSurfacesAnErrorRatherThanSwallowingIt(): void
+    public function testReimportingAnExistingHrIdUpdatesTheUserInPlace(): void
     {
-        $csv = "hr_id,first_name,last_name,email,department,active\n"
-            . "E1,Alice,Adams,alice@example.com,Eng,1\n";
+        $this->importCsv(
+            "hr_id,first_name,last_name,email,department,active\n"
+            . "E1,Alice,Adams,alice@example.com,Eng,1\n"
+        );
 
-        $first = $this->importCsv($csv);
-        self::assertArrayNotHasKey('errors', $first);
+        $result = $this->importCsv(
+            "hr_id,first_name,last_name,email,department,active\n"
+            . "E1,Alice,Adams-Updated,alice@example.com,Engineering,0\n"
+        );
 
-        // Re-importing the same hr_id collides on the unique constraint. The resolver
-        // must let that surface as a GraphQL error, not silently swallow it. Task 2
-        // changes this behaviour to an in-place update.
-        $second = $this->importCsv($csv);
-        self::assertArrayHasKey('errors', $second);
+        self::assertArrayNotHasKey('errors', $result);
+        $summary = $result['data']['importCsv'];
+        self::assertSame(0, $summary['created']);
+        self::assertSame(1, $summary['updated']);
+
+        $users = $this->execute('{ users { lastName isActive } }');
+        self::assertSame('Adams-Updated', $users['data']['users'][0]['lastName']);
+        self::assertFalse($users['data']['users'][0]['isActive']);
+    }
+
+    public function testUpdateUserMutation(): void
+    {
+        $this->importCsv(
+            "hr_id,first_name,last_name,email,department,active\n"
+            . "E1,Alice,Adams,alice@example.com,Eng,1\n"
+        );
+
+        $result = $this->execute(
+            'mutation($id: Int!, $input: UpdateUserInput!) {
+                updateUser(id: $id, input: $input) {
+                    id firstName lastName department isActive
+                }
+            }',
+            ['id' => 1, 'input' => ['lastName' => 'Anderson', 'department' => 'HR', 'isActive' => false]],
+        );
+
+        self::assertArrayNotHasKey('errors', $result);
+        $user = $result['data']['updateUser'];
+        self::assertSame('Anderson', $user['lastName']);
+        self::assertSame('HR', $user['department']);
+        self::assertFalse($user['isActive']);
+        self::assertSame('Alice', $user['firstName']);
+    }
+
+    public function testUpdateUserMutationReturnsErrorForUnknownId(): void
+    {
+        $result = $this->execute(
+            'mutation($id: Int!, $input: UpdateUserInput!) {
+                updateUser(id: $id, input: $input) { id }
+            }',
+            ['id' => 999, 'input' => ['firstName' => 'Ghost']],
+        );
+
+        self::assertArrayHasKey('errors', $result);
     }
 }

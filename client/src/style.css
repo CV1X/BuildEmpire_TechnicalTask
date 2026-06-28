@@ -72,3 +72,68 @@ td {
   color: #b42318;
   font-weight: 600;
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.modal h3 {
+  margin: 0 0 1.25rem;
+}
+
+.modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.875rem;
+}
+
+.modal__field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.modal__field input[type="text"],
+.modal__field input[type="email"],
+.modal__field input:not([type="checkbox"]) {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #c2cad6;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.modal__field--checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+.modal__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.btn--primary {
+  background: #2f6fed;
+  color: #fff;
+  border: none;
+  padding: 0.4rem 0.9rem;
+  border-radius: 4px;
+  cursor: pointer;
+}

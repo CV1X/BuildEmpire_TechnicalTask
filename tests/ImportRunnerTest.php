@@ -73,6 +73,33 @@ final class ImportRunnerTest extends TestCase
         self::assertSame(2, $summary->skippedCount());
     }
 
+    public function testReimportingExistingHrIdUpdatesUser(): void
+    {
+        $csv = $this->writeCsv(
+            "hr_id,first_name,last_name,email,department,active\n"
+            . "E1,Alice,Adams,alice@example.com,Eng,1\n"
+        );
+        $this->runner()->run($csv);
+
+        $updatedCsv = $this->writeCsv(
+            "hr_id,first_name,last_name,email,department,active\n"
+            . "E1,Alice,Adams-Updated,alice@example.com,Engineering,0\n"
+        );
+        $summary = $this->runner()->run($updatedCsv);
+
+        self::assertSame(0, $summary->imported());
+        self::assertSame(1, $summary->updated());
+        self::assertSame(1, (new UserRepository($this->pdo))->count());
+
+        $stored = $this->pdo->query(
+            "SELECT last_name, department, is_active FROM users WHERE hr_id = 'E1'"
+        )->fetch(PDO::FETCH_ASSOC);
+
+        self::assertSame('Adams-Updated', $stored['last_name']);
+        self::assertSame('Engineering', $stored['department']);
+        self::assertSame(0, (int) $stored['is_active']);
+    }
+
     public function testEmailIsNormalised(): void
     {
         $csv = $this->writeCsv(

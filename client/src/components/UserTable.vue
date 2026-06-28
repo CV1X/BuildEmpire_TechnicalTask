@@ -5,6 +5,8 @@ defineProps({
     required: true,
   },
 });
+
+defineEmits(['edit-user']);
 </script>
 
 <template>
@@ -17,6 +19,7 @@ defineProps({
         <th>Email</th>
         <th>Department</th>
         <th>Active</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -27,9 +30,12 @@ defineProps({
         <td>{{ user.email }}</td>
         <td>{{ user.department }}</td>
         <td>{{ user.isActive ? 'Yes' : 'No' }}</td>
+        <td>
+          <button :data-testid="`edit-${user.id}`" @click="$emit('edit-user', user)">Edit</button>
+        </td>
       </tr>
       <tr v-if="!users.length">
-        <td colspan="6">No users imported yet.</td>
+        <td colspan="7">No users imported yet.</td>
       </tr>
     </tbody>
   </table>

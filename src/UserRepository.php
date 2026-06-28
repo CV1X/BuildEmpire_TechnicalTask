@@ -35,6 +35,39 @@ final class UserRepository
         ]);
     }
 
+    /**
+     * @param array<string, string|int> $columns
+     */
+    public function update(int $id, array $columns): void
+    {
+        $setClauses = implode(', ', array_map(
+            fn(string $col) => "{$col} = :{$col}",
+            array_keys($columns)
+        ));
+
+        $params = [':id' => $id];
+        foreach ($columns as $col => $value) {
+            $params[":{$col}"] = $value;
+        }
+
+        $stmt = $this->pdo->prepare("UPDATE users SET {$setClauses} WHERE id = :id");
+        $stmt->execute($params);
+    }
+
+    /**
+     * @return array<string, string|int>|null
+     */
+    public function findByHrId(string $hrId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, hr_id, first_name, last_name, email, department, is_active FROM users WHERE hr_id = :hr_id'
+        );
+        $stmt->execute([':hr_id' => $hrId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
     public function existsByHrId(string $hrId): bool
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM users WHERE hr_id = :hr_id');
