@@ -1,133 +1,37 @@
-# Staff User Importer — technical exercise
 
-Thanks for taking the time to do this. It’s designed to take **about 2–4 hours**. We’re not
-looking for a polished product — we’re interested in how you read unfamiliar code, isolate a
-problem, and make focused changes across a Vue front end and a GraphQL/PHP back end.
+## My notes about technical tasks
 
-## The scenario
+### Task 1 — Fixing the broken import
 
-“AcmeLearn” runs a learning platform. Each night, HR exports a CSV of staff and we import it
-into the platform’s user store (a SQLite database, to keep this exercise self-contained). This
-repository contains a small web app for doing that import: a **Vue 3 single-page app** that
-talks to a **GraphQL API** in PHP, which in turn drives the import pipeline.
+When I ran the import with the sample CSV I got a database error about a duplicate `hr_id`. The CSV data itself looked perfectly fine, so I knew the problem was coming from somewhere inside the code rather than the file.
 
-Each row in the export carries an `hr_id` — the employee’s identifier in the HR system the data
-comes from. The platform’s own user store assigns its own surrogate `id` on insert; `hr_id` is
-kept as the stable reference back to HR.
+I've actually run into this one before :) In PHP, when you loop over an array using a reference (`foreach ($rows as &$row)`), the loop variable stays pointing at the last element even after the loop ends. So when the second loop kicks in and starts assigning values to $row, it's quietly overwriting that last element on every iteration. By the time the loop gets to the actual last row, it has already been replaced with a copy of the row before it, which means the same `hr_id` ends up being inserted twice and SQLite throws a constraint error.
 
-You don’t need any prior knowledge of our products to do this exercise.
+The fix was a single line: `unset($row)` right after the first loop, which breaks that reference before the second foreach loop runs.
 
-## What’s in the box
+### Task 2 — Supporting updates
 
-```
-api/                       GraphQL API layer (thin glue over the pipeline)
-  bootstrap.php            Autoloading + the SQLite connection
-  graphql/schema.graphql   The GraphQL schema (SDL)
-  Schema.php               Builds the schema and dispatches to resolvers by name
-  resolvers/               One file per operation (query/, mutation/)
-  UserMapper.php           Maps store rows <-> GraphQL fields
-public/
-  router.php               Entry point for the PHP built-in server
-  graphql.php              The /graphql endpoint
-src/                       The import pipeline (plain PHP, independent of the API)
-  CsvReader.php             Reads the CSV into rows
-  UserValidator.php         Validates a single row
-  UserRepository.php        Reads/writes users in the store
-  ImportRunner.php          Orchestrates the import and builds the summary
-  ImportSummary.php         Collects results for the report
-client/                    Vue 3 SPA (Vite)
-  src/views/               Import and Users pages
-  src/components/           UserTable, ResultsSummary
-  src/composables/          useGraphql (useQuery / useMutation)
-tests/                     PHPUnit test suite
-data/users.csv             A sample HR export
-schema.sql                 The user-store schema
-```
+**Upsert on import**
 
-## Requirements
+Before inserting a row, the import pipeline now checks whether that `hr_id` is already in the store. If it is, it updates the existing record instead of trying to create a new one. If it is not, it inserts as normal. The summary returned by the API now reports created and updated as separate numbers so you can see at a glance what actually changed.
 
-- PHP 8.1+ with the PDO SQLite extension (`pdo_sqlite`)
-- Composer
-- Node 18+ — needed for front-end development (`npm run dev`) and the Vue tests. The app can be
-  **demoed** with PHP alone if `client/dist` is present (it’s committed for convenience).
+**Edit user flow**
 
-## Running it
+I kept the edit UI inside the existing Users page rather than adding a separate page. Each row has an Edit button that opens a modal with the user's current data pre-filled. I went with a modal rather than an inline row editor because I find it cleaner to work with and it gives the form more breathing room, which makes it nicer to use especially if more fields get added later. Clicking outside the modal or pressing Cancel closes it without saving. On save, the app calls the `updateUser` mutation and refreshes the list so the change shows up straight away.
 
-```bash
-# 1. Install PHP dependencies
-composer install
+The `updateUser` resolver was already stubbed out in the codebase, I just wired it up to the repository and mapped the input fields to the right database columns.
 
-# 2. Build the front end (first time, or after changing client/ code)
-cd client && npm install && npm run build && cd ..
+**Trade-offs**
 
-# 3. Serve the app + API on one origin
-php -S localhost:8080 public/router.php
-# open http://localhost:8080
-```
+The current upsert does a separate `SELECT` for every row to check if that `hr_id` already exists before deciding to insert or update. For a small CSV this is fine, but if the store ever grew to a million users and the nightly export had hundreds of thousands of rows, that would be a lot of individual database lookups per import run. A better approach at that scale would be to load all existing `hr_id` values into memory once before the loop starts, or use a database-level upsert so the check and write happen in a single operation rather than two.
 
-While working on the front end, run the Vite dev server for hot reload — it proxies `/graphql`
-to the PHP server, so keep the PHP server running too:
+The modal adds a small extra component but keeps `UserTable` completely stateless, which makes it easier to test and reason about. The list refresh after saving does a full refetch rather than updating just the one row locally, which is a small extra round trip but keeps the code simple and avoids the list ever being out of sync.
 
-```bash
-cd client && npm run dev          # http://localhost:5173
-```
+### Task 3 — Handling very large files
 
-The store is written to `data/users.sqlite`. **Delete that file to start from a clean store.**
+For very long running imports you would also want to push the work into a background job, return a job ID to the client immediately, and let the UI poll for progress. That way the HTTP request does not time out and the user gets feedback as the import works through the file. I think this will be the biggest lifesaver (processing it in batches of like 50k or something)
 
-## Running the tests
+On he transport side, the app currently reads the whole CSV into the browser, base64-encodes it, and sends it as a single GraphQL string. For a file with hundreds of thousands of rows that string could easily be 50 to 100 MB. A better approach would be to send the file as a standard multipart HTTP upload instead, which avoids the base64 overhead and lets the browser stream the bytes without holding the whole thing in memoryt.
 
-```bash
-composer install && ./vendor/bin/phpunit      # PHP / API
-cd client && npm install && npm run test      # Vue components + composable
-```
+On the server side, `CsvReader` loads every row into a PHP array before any processing happens. If you instead read and process one row at a time using a generator (returning each row from `fgetcsv` as you go), the memory usage stays constant no matter how big the file is. The import pipeline would need to accept an iterable rather than a full array, but the rest of the logic stays the same.
 
-## Your tasks
-
-### 1. Fix the broken import (required)
-
-QA have filed a ticket:
-
-> Importing `data/users.csv` through the app fails partway through with a database error, and at
-> least one member of staff from the file never makes it into the store. The data in the CSV looks
-> fine to us, and the GraphQL response just shows a database error.
-
-Running the PHP test suite, you’ll find one failing test that reproduces this
-(`ImportRunnerTest::testEveryValidRowIsPersisted`). Track down the **root cause**, fix it, and get
-the suite green. In your write-up, briefly explain what was actually going wrong. Resist the urge
-to paper over it (swallowing the exception, `INSERT OR IGNORE`, de-duplicating rows) — the missing
-member of staff must actually end up in the store.
-
-### 2. Support updating users (required)
-
-Right now the importer can only ever *create* users, and there’s no way to correct a user once
-they’re imported.
-
-- **(a) Make the import an upsert.** If a member of staff is already in the store, re-running the
-  import should **update** them in place rather than failing; new staff are still created. The
-  results summary should distinguish records that were **created** from those that were
-  **updated**.
-- **(b) Add an “edit user” flow to the SPA** that calls the `updateUser` mutation and reflects the
-  change in the list. Add a new page, an inline editor — whatever you think fits best.
-
-The GraphQL schema already declares `updated` and the `updateUser` mutation. Wire them through the
-resolvers, the existing `UserRepository` / `ImportSummary`, and the UI. Add or adjust PHPUnit and
-Vue tests as you see fit.
-
-### 3. Handling a very large file (optional — if you have time)
-
-The app base64-encodes the whole file into a single GraphQL request, and `CsvReader` reads the
-entire CSV into memory before processing it. Imagine the nightly export grows to several hundred
-thousand rows. How would you change the **transport** and the **pipeline** to handle that without
-exhausting memory or timing out? A written explanation is fine if you don’t have time to implement
-it; partial code plus notes is also welcome.
-
-## Submitting
-
-Please send us a git repository (with your commit history) codebase, plus a short note covering:
-
-- the root cause of the bug in task 1, and how you fixed it;
-- the approach you took for task 2 and any trade-offs;
-- your thinking on task 3;
-- anything you’d do with more time, or chose deliberately not to do.
-
-We value clear, minimal changes that fit the existing code over large rewrites.
